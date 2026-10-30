@@ -8,8 +8,8 @@ import streamlit as st
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
-st.set_page_config(page_title="RAG QA 챗봇", page_icon="💬")
-st.title("RAG QA 챗봇")
+st.set_page_config(page_title="건강정보 챗봇", page_icon="💬")
+st.title("건강정보 챗봇")
 
 with st.sidebar:
     st.header("설정")
