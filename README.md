@@ -74,6 +74,9 @@ chmod +x model_api/run_model_api.sh
 프론트엔드는 <http://localhost:8501>, API 문서는 <http://localhost:8000/docs>, 헬스 체크는 <http://localhost:8000/health>에서 확인할 수 있습니다. 임베딩 API는 <http://localhost:8001/health>에서 확인할 수 있습니다. `.env`는 프로젝트 루트에 두며 Git에서 제외됩니다.
 
 임베딩 API는 첫 실행 시 `BAAI/bge-m3` 모델을 다운로드합니다(약 2.3GB). `EMBED_MODEL_NAME` 환경 변수로 모델 이름을 바꿀 수 있습니다.
+`POST /rerank`는 `BAAI/bge-reranker-v2-m3`를 사용해 질문과 후보 문서의 관련도를 계산하고, sigmoid 점수를 내림차순으로 반환합니다. 입력 후보는 1~50개이며, 텍스트는 최대 512 토큰까지 사용합니다. 리랭커도 첫 실행 시 다운로드됩니다. 임베딩과 리랭커를 함께 실행하려면 약 5GB 메모리가 필요합니다.
+
+`RERANK_ENABLED=false`로 설정하면 리랭커 모델을 로드하지 않고 `/rerank`는 501을 반환합니다. 메모리가 부족하면 이 설정으로 임베딩만 실행할 수 있습니다. 모델 이름은 `RERANK_MODEL_NAME`으로 바꿀 수 있으며, `GET /health`에서 리랭커의 모델과 활성화 여부를 확인할 수 있습니다.
 
 ## 설정
 
@@ -86,7 +89,7 @@ chmod +x model_api/run_model_api.sh
 | `EMBED_DIM` | `768` | mock 임베딩 벡터 차원 |
 | `VECTOR_SEARCH_MODE` | `mock` | `mock` 또는 `pgvector` |
 | `RERANKER_MODE` | `off` | `off`, `mock` 또는 `http` |
-| `RERANKER_URL` | 빈 값 | 재정렬 API 전체 URL (`http` 모드에서 필수) |
+| `RERANKER_URL` | 빈 값 (예시 URL은 `.env.example` 참조) | 재정렬 API 전체 URL (`http` 모드에서 필수) |
 | `RERANK_CANDIDATES` | `20` | 재정렬을 켰을 때 검색할 후보 수 |
 | `GENERATOR_MODE` | `mock` | `mock`, `http` 또는 `raon` |
 | `GENERATOR_URL` | 빈 값 | 생성 API 전체 URL (`http` 모드에서 필수) |
@@ -182,6 +185,7 @@ Raon 직접 호출(`GENERATOR_MODE=raon`)은 로컬 테스트용이며, 배포 �
 `embeddings`는 요청한 텍스트 수와 같은 길이의 벡터 배열이며, 각 벡터의 길이는 `dim`과 같아야 합니다.
 
 `model_api`는 이 계약에 따라 `POST /embed`와 `GET /health`를 제공합니다. 임베딩 벡터는 코사인 거리 검색을 위해 정규화됩니다.
+`model_api`의 `POST /rerank`는 아래 요청의 각 `(question, text)` 쌍을 점수화하고, sigmoid 변환 점수를 높은 순으로 반환합니다.
 
 ### 재정렬 API (`RERANKER_URL`)
 요청:

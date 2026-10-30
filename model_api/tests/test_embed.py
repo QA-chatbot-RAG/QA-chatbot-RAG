@@ -24,7 +24,11 @@ class FakeModel:
 
 def test_health_and_embedding_contract(monkeypatch) -> None:
     model = FakeModel()
+    monkeypatch.setattr(main, "RERANK_ENABLED", True)
     monkeypatch.setattr(main, "load_model", lambda model_name, device: model)
+    monkeypatch.setattr(
+        main, "load_reranker", lambda model_name, device: object()
+    )
 
     with TestClient(main.app) as client:
         health = client.get("/health")
@@ -34,6 +38,10 @@ def test_health_and_embedding_contract(monkeypatch) -> None:
             "model": "BAAI/bge-m3",
             "dim": 1024,
             "device": "cuda" if main.torch.cuda.is_available() else "cpu",
+            "reranker": {
+                "model": "BAAI/bge-reranker-v2-m3",
+                "enabled": True,
+            },
         }
 
         response = client.post("/embed", json={"texts": ["질문1", "질문2"]})
@@ -52,7 +60,11 @@ def test_health_and_embedding_contract(monkeypatch) -> None:
 
 
 def test_empty_text_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(main, "RERANK_ENABLED", True)
     monkeypatch.setattr(main, "load_model", lambda model_name, device: FakeModel())
+    monkeypatch.setattr(
+        main, "load_reranker", lambda model_name, device: object()
+    )
 
     with TestClient(main.app) as client:
         response = client.post("/embed", json={"texts": [""]})
@@ -61,7 +73,11 @@ def test_empty_text_is_rejected(monkeypatch) -> None:
 
 
 def test_empty_batch_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(main, "RERANK_ENABLED", True)
     monkeypatch.setattr(main, "load_model", lambda model_name, device: FakeModel())
+    monkeypatch.setattr(
+        main, "load_reranker", lambda model_name, device: object()
+    )
 
     with TestClient(main.app) as client:
         response = client.post("/embed", json={"texts": []})
