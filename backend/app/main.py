@@ -34,6 +34,7 @@ class Settings:
     embedder_url: str = ""
     reranker_url: str = ""
     generator_url: str = ""
+    db_url: str = ""
     provider_timeout: float = 10.0
     generator_timeout: float = 120.0
     raon_api_key: str = ""
@@ -56,6 +57,7 @@ class Settings:
             embedder_url=os.getenv("EMBEDDER_URL", ""),
             reranker_url=os.getenv("RERANKER_URL", ""),
             generator_url=os.getenv("GENERATOR_URL", ""),
+            db_url=os.getenv("DB_URL", ""),
             provider_timeout=float(os.getenv("PROVIDER_TIMEOUT", "10")),
             generator_timeout=float(os.getenv("GENERATOR_TIMEOUT", "120")),
             raon_api_key=os.getenv("RAON_API_KEY", ""),
@@ -85,7 +87,7 @@ def create_app(
     }
     vector_searches = {
         "mock": MockVectorSearch,
-        "pgvector": PgVectorSearch,
+        "pgvector": lambda: PgVectorSearch(config.db_url, config.provider_timeout),
     }
     rerankers = {
         "mock": MockReranker,
@@ -113,6 +115,8 @@ def create_app(
         raise ValueError("GENERATOR_MODE must be 'mock', 'http', or 'raon'")
     if config.embedder_mode == "http" and not config.embedder_url:
         raise ValueError("EMBEDDER_URL is required when EMBEDDER_MODE=http")
+    if config.vector_search_mode == "pgvector" and not config.db_url:
+        raise ValueError("DB_URL is required when VECTOR_SEARCH_MODE=pgvector")
     if config.reranker_mode == "http" and not config.reranker_url:
         raise ValueError("RERANKER_URL is required when RERANKER_MODE=http")
     if config.generator_mode == "http" and not config.generator_url:

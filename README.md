@@ -1,6 +1,6 @@
 # RAG QA 챗봇
 
-Streamlit 프론트엔드와 FastAPI 백엔드를 분리한 RAG QA 데모입니다. Python **3.11**을 사용하며, 임베딩/생성 구현체는 각각 `mock` 또는 HTTP API로 선택합니다. 벡터 검색은 현재 mock이며 pgvector 구현은 추후 추가할 예정입니다.
+Streamlit 프론트엔드와 FastAPI 백엔드를 분리한 RAG QA 데모입니다. Python **3.11**을 사용하며, 임베딩/생성 구현체는 각각 `mock` 또는 HTTP API로 선택합니다. 벡터 검색은 `mock` 또는 PostgreSQL(pgvector)을 사용하며, DB는 [QA-chatbot-RAG/DB](https://github.com/QA-chatbot-RAG/DB) 저장소의 백업 파일로 만듭니다.
 
 ## 폴더 구조
 
@@ -88,9 +88,10 @@ chmod +x model_api/run_model_api.sh
 | `EMBEDDER_URL` | 빈 값 (예시 URL은 `.env.example` 참조) | 임베딩 API 전체 URL (`http` 모드에서 필수) |
 | `EMBED_DIM` | `768` | mock 임베딩 벡터 차원 |
 | `VECTOR_SEARCH_MODE` | `mock` | `mock` 또는 `pgvector` |
+| `DB_URL` | 빈 값 | PostgreSQL 접속 주소, 예: `postgresql://rag:비밀번호@db.rag.internal:5432/medical_rag` (`pgvector` 모드에서 필수) |
 | `RERANKER_MODE` | `off` | `off`, `mock` 또는 `http` |
 | `RERANKER_URL` | 빈 값 (예시 URL은 `.env.example` 참조) | 재정렬 API 전체 URL (`http` 모드에서 필수) |
-| `RERANK_CANDIDATES` | `20` | 재정렬을 켰을 때 검색할 후보 수 |
+| `RERANK_CANDIDATES` | `20` | 재정렬을 켰을 때 검색할 후보 수 (`.env.example`은 30, 최대 50) |
 | `GENERATOR_MODE` | `mock` | `mock`, `http` 또는 `raon` |
 | `GENERATOR_URL` | 빈 값 | 생성 API 전체 URL (`http` 모드에서 필수) |
 | `PROVIDER_TIMEOUT` | `10` | 임베딩/재정렬 외부 API 호출 타임아웃(초) |
@@ -245,6 +246,34 @@ Raon 직접 호출을 확인하려면 `.env`에 `RAON_API_KEY`를 설정하고 b
 
 ```bash
 python -m scripts.raon_smoke
+```
+
+## 벡터 검색 (pgvector)
+
+`VECTOR_SEARCH_MODE=pgvector`이면 백엔드가 `DB_URL`로 PostgreSQL에 직접 접속해 질문 벡터와 코사인 거리가 가까운 단락을 찾습니다. 재정렬을 켜면 `RERANK_CANDIDATES`개를 검색해 `/rerank`로 순서를 다시 매긴 뒤 상위 `top_k`개만 남기고, 끄면 `top_k`개만 검색합니다.
+
+```sql
+SELECT p.docid, p.title, p.content, 1 - (e.embedding <=> :vector) AS score
+FROM passage_embeddings e JOIN passages p USING (docid)
+ORDER BY e.embedding <=> :vector
+LIMIT :top_k;
+```
+
+| DB 컬럼 | 응답 필드 |
+|---|---|
+| `passages.docid` | `doc_id` |
+| `passages.title` | `title` |
+| `passages.content` | `text` |
+| `1 - 코사인 거리` | `score` |
+
+- HNSW 인덱스가 `top_k`개를 다 찾을 수 있도록 검색할 때마다 `hnsw.ef_search`를 `max(40, top_k)`로 맞춥니다.
+- DB 접속·조회 실패는 `stage: "search"`인 HTTP 503으로 응답합니다.
+- 질문 벡터는 DB 임베딩과 같은 `BAAI/bge-m3`(1024차원, 정규화)여야 합니다. `model_api`가 이 조건을 만족합니다.
+
+DB 연결을 확인하려면 `.env`에 `DB_URL`을 설정하고 backend 디렉터리에서 실행합니다. DB에 저장된 단락 임베딩 하나로 검색해서 그 단락이 1등으로 나오면 `OK`를 출력합니다:
+
+```bash
+python -m scripts.pgvector_smoke
 ```
 
 ## EC2 배포 (Ubuntu)

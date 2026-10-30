@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import httpx
+import psycopg
 
 from app.models import Source
 
@@ -153,9 +154,44 @@ class MockVectorSearch(VectorSearch):
 
 
 class PgVectorSearch(VectorSearch):
+    # 코사인 거리(<=>) 오름차순 = 가까운 단락 순. score는 코사인 유사도(1 - 거리)
+    _query = """
+        SELECT p.docid, p.title, p.content,
+               1 - (e.embedding <=> %(vector)s::vector) AS score
+        FROM passage_embeddings e
+        JOIN passages p USING (docid)
+        ORDER BY e.embedding <=> %(vector)s::vector
+        LIMIT %(top_k)s
+    """
+
+    def __init__(self, db_url: str, timeout: float):
+        self.db_url = db_url
+        self.timeout = timeout
+
     async def search(self, vector: list[float], top_k: int) -> list[Source]:
-        # DB_URL 환경 변수로 psycopg + pgvector 연결 예정
-        raise NotImplementedError("pgvector search is not implemented yet")
+        # psycopg 비동기 모드는 Windows 기본 이벤트 루프에서 동작하지 않아 동기 연결을 스레드에서 실행
+        try:
+            rows = await asyncio.to_thread(self._fetch, vector, top_k)
+        except psycopg.Error as exc:
+            raise ProviderError("search", str(exc)) from exc
+        return [
+            Source(doc_id=docid, title=title, text=content, score=float(score))
+            for docid, title, content, score in rows
+        ]
+
+    def _fetch(self, vector: list[float], top_k: int) -> list[tuple[Any, ...]]:
+        vector_literal = "[" + ",".join(repr(float(value)) for value in vector) + "]"
+        with psycopg.connect(
+            self.db_url, connect_timeout=max(1, round(self.timeout))
+        ) as conn:
+            with conn.cursor() as cur:
+                # HNSW 인덱스는 ef_search(기본 40)개까지만 후보를 찾으므로 top_k 이상으로 맞춤
+                cur.execute(
+                    "SELECT set_config('hnsw.ef_search', %s, true)",
+                    (str(max(40, top_k)),),
+                )
+                cur.execute(self._query, {"vector": vector_literal, "top_k": top_k})
+                return cur.fetchall()
 
 
 class MockReranker(Reranker):

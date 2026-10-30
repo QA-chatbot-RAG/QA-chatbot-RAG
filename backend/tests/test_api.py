@@ -356,3 +356,146 @@ def test_raon_mode_requires_api_key():
 
     with pytest.raises(ValueError, match="RAON_API_KEY is required"):
         create_app(Settings(generator_mode="raon"))
+
+
+def _mock_pgvector(monkeypatch, rows=None, error=None):
+    import psycopg
+
+    calls = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, query, params):
+            calls.append({"query": query, "params": params})
+
+        def fetchall(self):
+            return rows
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    def fake_connect(conninfo, **kwargs):
+        calls.append({"conninfo": conninfo, **kwargs})
+        if error:
+            raise error
+        return FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    return calls
+
+
+_PG_ROWS = [
+    ("210860#0", "당뇨병", "당뇨병은 혈당이 높아지는 대사 질환이다.", 0.81),
+    ("210860#3", "당뇨병", "대표 증상은 다뇨, 다음, 다식이다.", 0.78),
+    ("1063536#0", "알부민뇨", "알부민뇨는 소변에 알부민이 섞여 나오는 것이다.", 0.52),
+]
+
+
+def test_pgvector_mode_requires_db_url():
+    import pytest
+
+    with pytest.raises(ValueError, match="DB_URL is required"):
+        create_app(Settings(vector_search_mode="pgvector"))
+
+
+def test_pgvector_search_maps_rows_to_sources(monkeypatch):
+    from app.providers import PgVectorSearch
+
+    calls = _mock_pgvector(monkeypatch, rows=_PG_ROWS)
+    search = PgVectorSearch("postgresql://rag:pw@db:5432/medical_rag", timeout=10)
+
+    sources = asyncio.run(search.search([0.5, -0.25, 1.0], top_k=3))
+
+    assert [source.doc_id for source in sources] == ["210860#0", "210860#3", "1063536#0"]
+    assert sources[1].title == "당뇨병"
+    assert sources[1].text == "대표 증상은 다뇨, 다음, 다식이다."
+    assert sources[1].score == 0.78
+    assert calls[0]["conninfo"] == "postgresql://rag:pw@db:5432/medical_rag"
+    assert calls[0]["connect_timeout"] == 10
+    assert calls[2]["params"] == {"vector": "[0.5,-0.25,1.0]", "top_k": 3}
+
+
+def test_pgvector_search_raises_ef_search_to_cover_top_k(monkeypatch):
+    from app.providers import PgVectorSearch
+
+    calls = _mock_pgvector(monkeypatch, rows=[])
+    search = PgVectorSearch("postgresql://db", timeout=10)
+
+    asyncio.run(search.search([0.1], top_k=10))
+    asyncio.run(search.search([0.1], top_k=50))
+
+    ef_search_values = [call["params"] for call in calls if "hnsw.ef_search" in call.get("query", "")]
+    assert ef_search_values == [("40",), ("50",)]
+
+
+def test_pgvector_failure_identifies_search_stage(monkeypatch):
+    import psycopg
+
+    _mock_pgvector(monkeypatch, error=psycopg.OperationalError("connection refused"))
+    client = TestClient(
+        create_app(Settings(vector_search_mode="pgvector", db_url="postgresql://db"))
+    )
+    response = client.post("/chat", json={"question": "당뇨병의 증상은?"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["stage"] == "search"
+
+
+def test_chat_searches_pgvector_candidates_then_reranks_to_top_k(monkeypatch):
+    calls = _mock_pgvector(monkeypatch, rows=_PG_ROWS)
+    rerank_calls = []
+
+    async def fake_post(self, url, json):
+        rerank_calls.append({"url": url, "json": json})
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"doc_id": "210860#3", "score": 0.97},
+                    {"doc_id": "210860#0", "score": 0.64},
+                    {"doc_id": "1063536#0", "score": 0.02},
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    client = TestClient(
+        create_app(
+            Settings(
+                vector_search_mode="pgvector",
+                db_url="postgresql://db",
+                reranker_mode="http",
+                reranker_url="http://model-api:8001/rerank",
+                rerank_candidates=30,
+            )
+        )
+    )
+    response = client.post("/chat", json={"question": "당뇨병의 증상은?", "top_k": 2})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert calls[2]["params"]["top_k"] == 30
+    assert rerank_calls[0]["json"]["candidates"][1] == {
+        "doc_id": "210860#3",
+        "text": "대표 증상은 다뇨, 다음, 다식이다.",
+    }
+    assert [source["doc_id"] for source in body["sources"]] == ["210860#3", "210860#0"]
+    assert body["sources"][0] == {
+        "doc_id": "210860#3",
+        "title": "당뇨병",
+        "text": "대표 증상은 다뇨, 다음, 다식이다.",
+        "score": 0.97,
+    }
