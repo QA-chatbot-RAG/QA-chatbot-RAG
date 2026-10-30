@@ -1,7 +1,7 @@
 [Unit]
 Description=RAG QA Streamlit frontend
-After=network.target backend.service
-Wants=backend.service
+After=network.target rag-backend.service
+Wants=rag-backend.service
 
 [Service]
 Type=simple

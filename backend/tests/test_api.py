@@ -78,6 +78,7 @@ def test_health():
             "reranker": "off",
             "generator": "mock",
         },
+        "generator_timeout": 120.0,
     }
 
 

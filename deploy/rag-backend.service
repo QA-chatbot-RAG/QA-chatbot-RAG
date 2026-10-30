@@ -1,6 +1,7 @@
 [Unit]
 Description=RAG QA FastAPI backend
-After=network.target
+After=network.target rag-model-api.service
+Wants=rag-model-api.service
 
 [Service]
 Type=simple

@@ -7,6 +7,23 @@ import streamlit as st
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+FRONTEND_TIMEOUT = float(os.getenv("FRONTEND_TIMEOUT", "150"))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_generator_timeout():
+    response = requests.get(f"{BACKEND_URL}/health", timeout=5)
+    response.raise_for_status()
+    return float(response.json()["generator_timeout"])
+
+
+def fetch_generator_timeout():
+    # 실패는 캐시하지 않아서, 백엔드가 늦게 떠도 다음 화면 갱신 때 다시 확인합니다.
+    try:
+        return _cached_generator_timeout()
+    except (requests.RequestException, KeyError, TypeError, ValueError):
+        return None
+
 
 st.set_page_config(page_title="건강정보 챗봇", page_icon="💬")
 st.title("건강정보 챗봇")
@@ -15,6 +32,13 @@ with st.sidebar:
     st.header("설정")
     top_k = st.slider("검색 문서 수 (top_k)", min_value=1, max_value=20, value=5)
     st.caption(f"백엔드: {BACKEND_URL}")
+    generator_timeout = fetch_generator_timeout()
+    if generator_timeout is not None and FRONTEND_TIMEOUT < generator_timeout + 20:
+        st.warning(
+            f"FRONTEND_TIMEOUT({FRONTEND_TIMEOUT:g}초)이 백엔드 "
+            f"GENERATOR_TIMEOUT({generator_timeout:g}초) + 20초보다 짧습니다. "
+            "답변 생성 중에 프론트 요청이 먼저 끊길 수 있습니다."
+        )
     st.subheader("최근 응답 시간")
     timings = st.session_state.get("last_latency")
     if timings:
@@ -67,7 +91,7 @@ if question:
                 response = requests.post(
                     f"{BACKEND_URL}/chat",
                     json={"question": question, "top_k": top_k},
-                    timeout=90,
+                    timeout=FRONTEND_TIMEOUT,
                 )
                 if response.status_code >= 400:
                     try:

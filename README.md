@@ -8,7 +8,7 @@ Streamlit 프론트엔드와 FastAPI 백엔드를 분리한 RAG QA 데모입니�
 backend/       FastAPI API, 검색/생성 provider, pytest, requirements.txt
 model_api/     FastAPI 임베딩 API, sentence-transformers, pytest
 frontend/      Streamlit 채팅 UI, requirements.txt
-deploy/        backend.service, model-api.service, frontend.service (systemd)
+deploy/        rag-backend.service, rag-model-api.service, rag-frontend.service (systemd)
 run_backend.sh / run_backend.bat
 run_frontend.sh / run_frontend.bat
 model_api/run_model_api.sh / .bat
@@ -95,8 +95,9 @@ chmod +x model_api/run_model_api.sh
 | `RERANK_MIN_SCORE` | `0.2` | 재정렬 결과에서 이 점수 미만인 문서를 제외하는 기준 (0~1, sigmoid 점수) |
 | `GENERATOR_MODE` | `mock` | `mock`, `http` 또는 `raon` |
 | `GENERATOR_URL` | 빈 값 | 생성 API 전체 URL (`http` 모드에서 필수) |
-| `PROVIDER_TIMEOUT` | `10` | 임베딩/재정렬 외부 API 호출 타임아웃(초) |
+| `PROVIDER_TIMEOUT` | `30` | 임베딩/재정렬 외부 API 호출 타임아웃(초). CPU 서버에서 리랭커 사용 시 30초 이상 권장 (bge-reranker-v2-m3, 후보 20~30개 기준) |
 | `GENERATOR_TIMEOUT` | `120` | 생성 API 타임아웃(초) |
+| `FRONTEND_TIMEOUT` | `150` | Streamlit이 백엔드 `/chat`을 기다리는 타임아웃(초). `GENERATOR_TIMEOUT` + 30 권장, ALB 유휴 제한(180초) 미만이어야 함. `GENERATOR_TIMEOUT` + 20보다 짧으면 사이드바에 경고 표시 |
 | `RAON_API_KEY` | 빈 값 | Raon API 인증 키 (`GENERATOR_MODE=raon`에서 필수) |
 | `RAON_BASE_URL` | `https://raon-api.krafton.ai/v1` | Raon API 기본 URL |
 | `RAON_MODEL` | `raon-1-mini-preview` | Raon 모델 |
@@ -120,9 +121,12 @@ Raon 직접 호출(`GENERATOR_MODE=raon`)은 로컬 테스트용이며, 배포 �
     "vector_search": "mock",
     "reranker": "off",
     "generator": "mock"
-  }
+  },
+  "generator_timeout": 120.0
 }
 ```
+
+`generator_timeout`은 프론트엔드가 시작할 때 읽어 `FRONTEND_TIMEOUT`과 비교하는 데 사용합니다.
 
 ### `POST /chat`
 
@@ -307,17 +311,18 @@ python3.11 -m venv frontend/.venv
 python3.11 -m venv model_api/.venv
 backend/.venv/bin/python -m pip install -r backend/requirements.txt
 frontend/.venv/bin/python -m pip install -r frontend/requirements.txt
-model_api/.venv/bin/python -m pip install -r model_api/requirements.txt
+model_api/.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+model_api/.venv/bin/pip install -r model_api/requirements.txt
 ```
+
+`model_api`는 CPU용 torch를 먼저 설치해, GPU 없는 서버에 CUDA 패키지(약 4GB)가 설치되는 것을 막습니다.
 
 ### 3. systemd 서비스 등록 및 시작
 
 서비스 예제의 경로는 `/home/ubuntu/RAG_01`과 `ubuntu` 사용자를 기준으로 합니다. 저장소가 다른 경로라면 서비스 파일의 `WorkingDirectory`, `EnvironmentFile`, `ExecStart`를 수정합니다.
 
 ```bash
-sudo cp deploy/backend.service /etc/systemd/system/rag-backend.service
-sudo cp deploy/frontend.service /etc/systemd/system/rag-frontend.service
-sudo cp deploy/model-api.service /etc/systemd/system/rag-model-api.service
+sudo cp deploy/rag-backend.service deploy/rag-frontend.service deploy/rag-model-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now rag-backend.service rag-frontend.service rag-model-api.service
 sudo systemctl status rag-backend.service rag-frontend.service rag-model-api.service
@@ -331,6 +336,8 @@ sudo journalctl -u rag-frontend.service -f
 sudo journalctl -u rag-model-api.service -f
 sudo systemctl restart rag-backend.service rag-frontend.service rag-model-api.service
 ```
+
+시작 순서는 `rag-model-api` → `rag-backend` → `rag-frontend`입니다. 각 서비스가 `After=`/`Wants=`로 앞 서비스를 참조하므로 서비스 파일 이름을 바꾸지 말고 그대로 복사합니다.
 
 `enable` 설정으로 EC2 재부팅 후 자동 시작하며, systemd가 SSH 연결과 독립적으로 세 프로세스를 계속 실행하고 실패 시 재시작합니다.
 

@@ -1,4 +1,6 @@
-fastapi
-uvicorn
-sentence-transformers
-torch
+# torch는 여기서 설치하지 않습니다 (sentence-transformers 의존성으로 기본 torch가 함께 설치됨).
+# CPU 서버(GPU 없음)는 CUDA 패키지(약 4GB) 설치를 막기 위해 아래 명령으로 먼저 설치하세요:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+sentence-transformers>=6.0,<7

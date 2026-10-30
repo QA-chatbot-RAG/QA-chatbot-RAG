@@ -35,7 +35,7 @@ class Settings:
     reranker_url: str = ""
     generator_url: str = ""
     db_url: str = ""
-    provider_timeout: float = 10.0
+    provider_timeout: float = 30.0
     generator_timeout: float = 120.0
     raon_api_key: str = ""
     raon_base_url: str = "https://raon-api.krafton.ai/v1"
@@ -59,7 +59,7 @@ class Settings:
             reranker_url=os.getenv("RERANKER_URL", ""),
             generator_url=os.getenv("GENERATOR_URL", ""),
             db_url=os.getenv("DB_URL", ""),
-            provider_timeout=float(os.getenv("PROVIDER_TIMEOUT", "10")),
+            provider_timeout=float(os.getenv("PROVIDER_TIMEOUT", "30")),
             generator_timeout=float(os.getenv("GENERATOR_TIMEOUT", "120")),
             raon_api_key=os.getenv("RAON_API_KEY", ""),
             raon_base_url=os.getenv(
@@ -174,6 +174,7 @@ def create_app(
                 "reranker": config.reranker_mode,
                 "generator": config.generator_mode,
             },
+            "generator_timeout": config.generator_timeout,
         }
 
     @app.post("/chat", response_model=ChatResponse)
