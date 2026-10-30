@@ -1,0 +1,6 @@
+# 임베딩 CSV는 160MB라 GitHub에 못 올림 → db/medical_rag.dump 사용
+db/medical_embeddings.csv
+
+__pycache__/
+.ipynb_checkpoints/
+.env
