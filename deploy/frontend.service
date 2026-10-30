@@ -1,0 +1,16 @@
+[Unit]
+Description=RAG QA Streamlit frontend
+After=network.target backend.service
+Wants=backend.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/RAG_01/frontend
+Environment=BACKEND_URL=http://127.0.0.1:8000
+ExecStart=/home/ubuntu/RAG_01/frontend/.venv/bin/streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
