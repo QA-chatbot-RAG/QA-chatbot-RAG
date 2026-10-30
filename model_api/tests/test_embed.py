@@ -9,6 +9,8 @@ import main
 class FakeModel:
     def __init__(self) -> None:
         self.normalize_embeddings = False
+        self.max_seq_length = 512
+        self.encoded_max_seq_length = None
 
     def encode(
         self,
@@ -18,6 +20,7 @@ class FakeModel:
         convert_to_numpy: bool,
     ) -> np.ndarray:
         self.normalize_embeddings = normalize_embeddings
+        self.encoded_max_seq_length = self.max_seq_length
         assert convert_to_numpy is True
         return np.full((len(texts), main.EMBEDDING_DIM), 1 / 32, dtype=np.float32)
 
@@ -83,3 +86,20 @@ def test_empty_batch_is_rejected(monkeypatch) -> None:
         response = client.post("/embed", json={"texts": []})
 
     assert response.status_code == 422
+
+
+def test_embedding_request_limits_and_restores_max_sequence_length(monkeypatch) -> None:
+    model = FakeModel()
+    monkeypatch.setattr(main, "RERANK_ENABLED", True)
+    monkeypatch.setattr(main, "load_model", lambda model_name, device: model)
+    monkeypatch.setattr(main, "load_reranker", lambda model_name, device: object())
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/embed",
+            json={"texts": ["질문"], "max_length": 128},
+        )
+
+    assert response.status_code == 200
+    assert model.encoded_max_seq_length == 128
+    assert model.max_seq_length == 512

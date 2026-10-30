@@ -1,4 +1,5 @@
 import os
+import threading
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -39,6 +40,7 @@ def load_reranker(model_name: str, device: str) -> Any:
 
 class EmbedRequest(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=64)
+    max_length: int | None = Field(default=None, ge=1, le=8192)
 
     @field_validator("texts")
     @classmethod
@@ -62,6 +64,7 @@ class RerankRequest(BaseModel):
 async def lifespan(app: FastAPI):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     app.state.embedding_model = load_model(MODEL_NAME, device)
+    app.state.embedding_lock = threading.Lock()
     app.state.reranker = (
         load_reranker(RERANK_MODEL_NAME, device) if RERANK_ENABLED else None
     )
@@ -88,11 +91,19 @@ async def health(request: Request) -> dict[str, Any]:
 
 @app.post("/embed")
 def embed(body: EmbedRequest, request: Request) -> dict[str, Any]:
-    vectors = request.app.state.embedding_model.encode(
-        body.texts,
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-    )
+    model = request.app.state.embedding_model
+    with request.app.state.embedding_lock:
+        original_max_length = model.max_seq_length
+        try:
+            if body.max_length is not None:
+                model.max_seq_length = min(original_max_length, body.max_length)
+            vectors = model.encode(
+                body.texts,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+            )
+        finally:
+            model.max_seq_length = original_max_length
     embeddings = vectors.tolist()
     if len(embeddings) != len(body.texts) or any(
         len(vector) != EMBEDDING_DIM for vector in embeddings

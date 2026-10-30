@@ -170,7 +170,7 @@ Raon 직접 호출(`GENERATOR_MODE=raon`)은 로컬 테스트용이며, 배포 �
 요청:
 
 ```json
-{"texts": ["에펠탑은 어디에 있나요?"]}
+{"texts": ["에펠탑은 어디에 있나요?"], "max_length": 128}
 ```
 
 성공 응답:
@@ -185,7 +185,7 @@ Raon 직접 호출(`GENERATOR_MODE=raon`)은 로컬 테스트용이며, 배포 �
 
 `embeddings`는 요청한 텍스트 수와 같은 길이의 벡터 배열이며, 각 벡터의 길이는 `dim`과 같아야 합니다.
 
-`model_api`는 이 계약에 따라 `POST /embed`와 `GET /health`를 제공합니다. 임베딩 벡터는 코사인 거리 검색을 위해 정규화됩니다.
+백엔드는 질문 임베딩 요청에 `max_length: 128`을 포함합니다. `model_api`는 이 값을 해당 요청에만 적용하고, 생략된 요청은 모델 기본 길이를 사용합니다. 임베딩 벡터는 코사인 거리 검색을 위해 정규화됩니다.
 `model_api`의 `POST /rerank`는 아래 요청의 각 `(question, text)` 쌍을 점수화하고, sigmoid 변환 점수를 높은 순으로 반환합니다.
 
 ### 재정렬 API (`RERANKER_URL`)

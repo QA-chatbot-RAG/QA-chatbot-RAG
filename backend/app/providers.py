@@ -72,14 +72,18 @@ class MockEmbedder(Embedder):
 
 
 class HttpEmbedder(Embedder):
-    def __init__(self, url: str, timeout: float):
+    def __init__(self, url: str, timeout: float, max_length: int = 128):
         self.url = url
         self.timeout = timeout
+        self.max_length = max_length
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(self.url, json={"texts": texts})
+                response = await client.post(
+                    self.url,
+                    json={"texts": texts, "max_length": self.max_length},
+                )
                 response.raise_for_status()
                 data = response.json()
                 embeddings = data["embeddings"]

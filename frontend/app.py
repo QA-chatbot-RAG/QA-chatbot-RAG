@@ -54,6 +54,7 @@ def render_message(message):
 for item in st.session_state.messages:
     render_message(item)
 
+loading_placeholder = st.empty()
 question = st.chat_input("질문을 입력하세요")
 if question:
     user_message = {"role": "user", "content": question}
@@ -61,26 +62,30 @@ if question:
     render_message(user_message)
 
     try:
-        response = requests.post(
-            f"{BACKEND_URL}/chat",
-            json={"question": question, "top_k": top_k},
-            timeout=35,
-        )
-        if response.status_code >= 400:
-            try:
-                detail = response.json().get("error", {}).get(
-                    "message", response.text
+        with loading_placeholder.container():
+            with st.spinner("답변 생성 중..."):
+                response = requests.post(
+                    f"{BACKEND_URL}/chat",
+                    json={"question": question, "top_k": top_k},
+                    timeout=90,
                 )
-            except ValueError:
-                detail = response.text
-            raise RuntimeError(f"백엔드 오류 ({response.status_code}): {detail}")
-        data = response.json()
-        assistant_message = {
-            "role": "assistant",
-            "content": data["answer"],
-            "no_answer": data["no_answer"],
-            "sources": data["sources"],
-        }
+                if response.status_code >= 400:
+                    try:
+                        detail = response.json().get("error", {}).get(
+                            "message", response.text
+                        )
+                    except ValueError:
+                        detail = response.text
+                    raise RuntimeError(
+                        f"백엔드 오류 ({response.status_code}): {detail}"
+                    )
+                data = response.json()
+                assistant_message = {
+                    "role": "assistant",
+                    "content": data["answer"],
+                    "no_answer": data["no_answer"],
+                    "sources": data["sources"],
+                }
         st.session_state.last_latency = data["latency_ms"]
         st.session_state.messages.append(assistant_message)
         st.rerun()
@@ -96,6 +101,8 @@ if question:
             "content": f"요청을 처리하지 못했습니다. {exc}",
             "sources": [],
         }
+    finally:
+        loading_placeholder.empty()
 
     st.session_state.messages.append(assistant_message)
     render_message(assistant_message)

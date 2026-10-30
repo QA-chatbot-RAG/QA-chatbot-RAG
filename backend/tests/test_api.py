@@ -35,6 +35,36 @@ def _raon_client(debug=False):
     )
 
 
+def test_http_embedder_requests_limited_sequence_length(monkeypatch):
+    from app.providers import HttpEmbedder
+
+    calls = []
+
+    async def fake_post(self, url, json):
+        calls.append({"url": url, "json": json})
+        return httpx.Response(
+            200,
+            json={
+                "embeddings": [[0.0] * 768],
+                "model": "test-model",
+                "dim": 768,
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    embedder = HttpEmbedder("http://model-api:8001/embed", timeout=10)
+
+    asyncio.run(embedder.embed(["질문"]))
+
+    assert calls == [
+        {
+            "url": "http://model-api:8001/embed",
+            "json": {"texts": ["질문"], "max_length": 128},
+        }
+    ]
+
+
 def test_health():
     client = TestClient(create_app(Settings()))
     response = client.get("/health")
