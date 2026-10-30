@@ -43,6 +43,7 @@ class Settings:
     raon_max_tokens: int = 4096
     raon_temperature: float = 1.0
     rerank_candidates: int = 20
+    rerank_min_score: float = 0.2
     embed_dim: int = 768
     debug: bool = False
 
@@ -68,6 +69,7 @@ class Settings:
             raon_max_tokens=int(os.getenv("RAON_MAX_TOKENS", "4096")),
             raon_temperature=float(os.getenv("RAON_TEMPERATURE", "1.0")),
             rerank_candidates=int(os.getenv("RERANK_CANDIDATES", "20")),
+            rerank_min_score=float(os.getenv("RERANK_MIN_SCORE", "0.2")),
             embed_dim=int(os.getenv("EMBED_DIM", "768")),
             debug=os.getenv("DEBUG", "false").lower() in {"1", "true", "yes"},
         )
@@ -129,6 +131,8 @@ def create_app(
         raise ValueError("GENERATOR_TIMEOUT must be greater than zero")
     if config.rerank_candidates < 1:
         raise ValueError("RERANK_CANDIDATES must be greater than zero")
+    if not 0 <= config.rerank_min_score <= 1:
+        raise ValueError("RERANK_MIN_SCORE must be between zero and one")
     if config.raon_max_tokens < 1:
         raise ValueError("RAON_MAX_TOKENS must be greater than zero")
     if config.embed_dim < 1:
@@ -190,6 +194,11 @@ def create_app(
         if active_reranker is not None and sources:
             rerank_started = time.perf_counter()
             sources = await active_reranker.rerank(body.question, sources)
+            sources = [
+                source
+                for source in sources
+                if source.score >= config.rerank_min_score
+            ]
             sources = sources[: body.top_k]
             rerank_ms = round((time.perf_counter() - rerank_started) * 1000)
 

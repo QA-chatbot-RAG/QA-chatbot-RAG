@@ -118,6 +118,68 @@ def test_chat_with_mock_reranker_searches_candidates_then_limits_results():
     assert body["latency_ms"]["rerank"] >= 0
 
 
+def test_chat_filters_sources_below_minimum_rerank_score():
+    from app.models import Source
+
+    class FixedVectorSearch:
+        async def search(self, vector, top_k):
+            return [
+                Source(doc_id="high", text="높은 관련도", score=0.0),
+                Source(doc_id="boundary", text="기준 점수", score=0.0),
+                Source(doc_id="low", text="낮은 관련도", score=0.0),
+            ][:top_k]
+
+    class FixedReranker:
+        async def rerank(self, question, candidates):
+            scores = {"high": 0.8, "boundary": 0.2, "low": 0.199}
+            return [
+                source.model_copy(update={"score": scores[source.doc_id]})
+                for source in candidates
+            ]
+
+    client = TestClient(
+        create_app(
+            Settings(reranker_mode="mock", rerank_min_score=0.2),
+            vector_search=FixedVectorSearch(),
+            reranker=FixedReranker(),
+        )
+    )
+    response = client.post("/chat", json={"question": "질문", "top_k": 5})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [source["doc_id"] for source in body["sources"]] == ["high", "boundary"]
+    assert body["no_answer"] is False
+
+
+def test_chat_returns_no_answer_when_all_rerank_scores_are_below_minimum():
+    from app.models import Source
+
+    class FixedVectorSearch:
+        async def search(self, vector, top_k):
+            return [Source(doc_id="low", text="관련도 낮음", score=0.0)]
+
+    class FixedReranker:
+        async def rerank(self, question, candidates):
+            return [source.model_copy(update={"score": 0.199}) for source in candidates]
+
+    client = TestClient(
+        create_app(
+            Settings(reranker_mode="mock", rerank_min_score=0.2),
+            vector_search=FixedVectorSearch(),
+            reranker=FixedReranker(),
+        )
+    )
+    response = client.post("/chat", json={"question": "질문"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "문서에서 답을 찾지 못했습니다."
+    assert body["no_answer"] is True
+    assert body["sources"] == []
+    assert body["latency_ms"]["generation"] == 0
+
+
 def test_chat_without_search_results_skips_generation():
     class EmptyVectorSearch:
         async def search(self, vector, top_k):
@@ -438,6 +500,14 @@ def test_pgvector_mode_requires_db_url():
 
     with pytest.raises(ValueError, match="DB_URL is required"):
         create_app(Settings(vector_search_mode="pgvector"))
+
+
+def test_rerank_min_score_must_be_between_zero_and_one():
+    import pytest
+
+    for score in (-0.01, 1.01):
+        with pytest.raises(ValueError, match="RERANK_MIN_SCORE"):
+            create_app(Settings(rerank_min_score=score))
 
 
 def test_pgvector_search_maps_rows_to_sources(monkeypatch):

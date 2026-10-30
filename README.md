@@ -92,6 +92,7 @@ chmod +x model_api/run_model_api.sh
 | `RERANKER_MODE` | `off` | `off`, `mock` 또는 `http` |
 | `RERANKER_URL` | 빈 값 (예시 URL은 `.env.example` 참조) | 재정렬 API 전체 URL (`http` 모드에서 필수) |
 | `RERANK_CANDIDATES` | `20` | 재정렬을 켰을 때 검색할 후보 수 (`.env.example`은 30, 최대 50) |
+| `RERANK_MIN_SCORE` | `0.2` | 재정렬 결과에서 이 점수 미만인 문서를 제외하는 기준 (0~1, sigmoid 점수) |
 | `GENERATOR_MODE` | `mock` | `mock`, `http` 또는 `raon` |
 | `GENERATOR_URL` | 빈 값 | 생성 API 전체 URL (`http` 모드에서 필수) |
 | `PROVIDER_TIMEOUT` | `10` | 임베딩/재정렬 외부 API 호출 타임아웃(초) |
@@ -147,7 +148,7 @@ Raon 직접 호출(`GENERATOR_MODE=raon`)은 로컬 테스트용이며, 배포 �
 }
 ```
 
-`title`이 없으면 `null`입니다. `DEBUG=true`인 경우에만 응답에 `thinking` 문자열 필드가 추가됩니다. 추론 과정은 `answer`에 포함하지 않아야 합니다. 근거가 검색되지 않으면 생성 단계를 건너뛰고 `no_answer: true`, 빈 `sources`, `generation: 0`을 반환합니다.
+`title`이 없으면 `null`입니다. `DEBUG=true`인 경우에만 응답에 `thinking` 문자열 필드가 추가됩니다. 추론 과정은 `answer`에 포함하지 않아야 합니다. 근거가 검색되지 않거나 재정렬 점수가 기준 미만이면 생성 단계를 건너뛰고 `no_answer: true`, 빈 `sources`, `generation: 0`을 반환합니다.
 
 외부 API 실패 응답 예 (HTTP 503):
 
