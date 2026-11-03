@@ -330,6 +330,64 @@ def test_raon_no_answer_phrase_sets_no_answer(monkeypatch):
     assert response.json()["no_answer"] is True
 
 
+def test_raon_system_prompt_explains_missing_evidence(monkeypatch):
+    calls = _mock_raon_responses(
+        monkeypatch,
+        [
+            (
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {"content": "답변", "reasoning": ""},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
+                {},
+            )
+        ],
+    )
+
+    response = _raon_client().post("/chat", json={"question": "질문"})
+
+    assert response.status_code == 200
+    system_prompt = calls[0]["json"]["messages"][0]["content"]
+    assert "문서에서 답을 찾을 수 없습니다." in system_prompt
+    assert "무엇이 없는지" in system_prompt
+
+
+def test_raon_explanatory_abstention_sets_no_answer(monkeypatch):
+    _mock_raon_responses(
+        monkeypatch,
+        [
+            (
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    "문서에서 답을 찾을 수 없습니다. "
+                                    "[1]에는 수술 후 주의사항만 있고 운전 시기는 없습니다."
+                                ),
+                                "reasoning": "",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
+                {},
+            )
+        ],
+    )
+
+    response = _raon_client().post("/chat", json={"question": "질문"})
+
+    assert response.status_code == 200
+    assert response.json()["no_answer"] is True
+
+
 def test_raon_empty_content_after_length_limit_is_handled(monkeypatch, caplog):
     _mock_raon_responses(
         monkeypatch,
